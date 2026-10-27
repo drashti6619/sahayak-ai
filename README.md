@@ -4,7 +4,7 @@
 
 This repository contains a **browser-based software simulation** of the wearable device. It uses your phone or laptop camera in place of the future hardware, so the full experience can be demonstrated with nothing but a web browser.
 
-**🔗 Live demo:** `https://<your-username>.github.io/<repo-name>/` *(replace after enabling GitHub Pages)*
+**🔗 Live demo:** `https://drashti6619.github.io/sahayak-ai/` *(replace after enabling GitHub Pages)*
 
 ---
 
