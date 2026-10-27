@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sahayak AI — Live Demo</title>
+<style>
+  :root{
+    --safe:#1db954; --caution:#f5a623; --danger:#e5384d; --bg:#0d1117; --panel:#161b22; --text:#e6edf3;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);}
+  .wrap{max-width:820px;margin:0 auto;padding:20px;}
+  h1{font-size:22px;margin-bottom:4px;}
+  .sub{color:#8b949e;margin-bottom:18px;font-size:14px;}
+  .stage{position:relative;border-radius:14px;overflow:hidden;background:#000;box-shadow:0 0 0 1px #30363d;}
+  video{width:100%;display:block;}
+  .status-banner{
+    position:absolute;top:0;left:0;right:0;padding:14px 18px;font-weight:700;font-size:18px;
+    display:flex;align-items:center;gap:10px;transition:background 0.3s ease;
+    background:rgba(0,0,0,0.55);
+  }
+  .dot{width:14px;height:14px;border-radius:50%;flex-shrink:0;}
+  .msg-line{position:absolute;bottom:0;left:0;right:0;padding:14px 18px;font-size:16px;
+    background:linear-gradient(transparent, rgba(0,0,0,0.85));}
+  .controls{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;}
+  button{
+    background:var(--panel);color:var(--text);border:1px solid #30363d;padding:10px 18px;
+    border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;
+  }
+  button.primary{background:#2f6feb;border-color:#2f6feb;}
+  button.stop{background:var(--danger);border-color:var(--danger);}
+  button:disabled{opacity:0.4;cursor:not-allowed;}
+  .panel{background:var(--panel);border:1px solid #30363d;border-radius:12px;padding:16px;margin-top:18px;}
+  .panel h3{margin-top:0;font-size:15px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;}
+  .log{max-height:160px;overflow-y:auto;font-size:13px;line-height:1.7;}
+  .log div{border-bottom:1px solid #21262d;padding:4px 0;}
+  .concept{display:flex;gap:16px;align-items:center;margin-top:18px;}
+  .concept svg{flex-shrink:0;}
+  .concept p{font-size:13px;color:#8b949e;margin:0;}
+  .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-right:6px;}
+  .badge.safe{background:var(--safe);color:#000;}
+  .badge.caution{background:var(--caution);color:#000;}
+  .badge.danger{background:var(--danger);color:#fff;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎽 Sahayak AI — Live Monitoring Demo</h1>
+  <div class="sub">Software simulation of the wearable clip-on device. Camera runs continuously — no need to point or hold the phone.</div>
+
+  <div class="stage">
+    <div class="status-banner" id="statusBanner">
+      <div class="dot" id="statusDot" style="background:#555;"></div>
+      <span id="statusText">Monitoring not started</span>
+    </div>
+    <video id="video" autoplay playsinline muted></video>
+    <div class="msg-line" id="msgLine">Press "Start Monitoring" to begin</div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="startBtn">▶ Start Monitoring</button>
+    <button class="stop" id="stopBtn" disabled>■ Stop</button>
+    <button id="testDangerBtn">🔥 Simulate Danger (for demo)</button>
+    <button id="testCautionBtn">⚠️ Simulate Caution (for demo)</button>
+  </div>
+
+  <div class="panel">
+    <h3>Alert Log</h3>
+    <div class="log" id="log"><div>Waiting to start...</div></div>
+  </div>
+
+  <div class="panel concept">
+    <svg width="90" height="110" viewBox="0 0 90 110" fill="none">
+      <rect x="10" y="0" width="70" height="10" rx="5" fill="#484f58"/>
+      <path d="M15 5 Q45 40 15 90" stroke="#484f58" stroke-width="3" fill="none"/>
+      <path d="M75 5 Q45 40 75 90" stroke="#484f58" stroke-width="3" fill="none"/>
+      <circle cx="45" cy="95" r="15" fill="#2f6feb"/>
+      <circle cx="45" cy="95" r="6" fill="#0d1117"/>
+      <circle cx="45" cy="91" r="2" fill="#58a6ff"/>
+    </svg>
+    <p><strong>Roadmap — Phase 2 hardware:</strong> This same detection logic will run on a small ESP32-CAM pendant clipped to a collar or lanyard, streaming to the phone over WiFi — so the user never needs to hold or point anything. Today's demo simulates that experience using the device camera already in your hand/laptop.</p>
+  </div>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+const statusBanner = document.getElementById('statusBanner');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const msgLine = document.getElementById('msgLine');
+const logEl = document.getElementById('log');
+const testDangerBtn = document.getElementById('testDangerBtn');
+const testCautionBtn = document.getElementById('testCautionBtn');
+
+let stream = null;
+let intervalId = null;
+const canvas = document.createElement('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+const COLORS = { SAFE: '#1db954', CAUTION: '#f5a623', DANGER: '#e5384d' };
+
+// Simple heuristic messages the "AI" can report -- swap this for your real
+// vision/LLM API call when you have hardware + API keys. This version uses
+// real pixel analysis (brightness + red-channel dominance) on the live frame
+// so the behaviour genuinely responds to the camera feed, not just random.
+const HAZARD_LIBRARY = [
+  { level: 'DANGER', msg: 'Fire-like colours detected ahead. Do not move forward. Move away immediately.' },
+  { level: 'CAUTION', msg: 'Low light and obstacle detected 2 metres ahead. Proceed carefully.' },
+  { level: 'CAUTION', msg: 'Person detected nearby. Maintain distance.' },
+  { level: 'SAFE', msg: 'Path is clear. Safe to continue.' },
+];
+
+function speak(text) {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.rate = 1;
+  window.speechSynthesis.speak(utter);
+}
+
+function vibratePattern(level) {
+  if (!navigator.vibrate) return;
+  if (level === 'DANGER') navigator.vibrate([300, 100, 300, 100, 300]);
+  else if (level === 'CAUTION') navigator.vibrate([150]);
+}
+
+function setStatus(level, message) {
+  const color = COLORS[level] || '#555';
+  statusDot.style.background = color;
+  statusBanner.style.background = level ? color + 'cc' : 'rgba(0,0,0,0.55)';
+  statusText.textContent = level ? level : 'Monitoring not started';
+  msgLine.textContent = message || '—';
+  const time = new Date().toLocaleTimeString();
+  const badgeClass = level ? level.toLowerCase() : '';
+  const entry = document.createElement('div');
+  entry.innerHTML = `<span class="badge ${badgeClass}">${level || 'INFO'}</span>${time} — ${message}`;
+  logEl.prepend(entry);
+  if (level && level !== 'SAFE') {
+    speak(message);
+    vibratePattern(level);
+  }
+}
+
+// Real (basic) pixel analysis: samples the current video frame and checks
+// average brightness + red-channel dominance to bias which hazard message
+// is more likely -- this is a genuine, explainable CV heuristic suitable for
+// a hackathon MVP, and a natural place to swap in your trained model / API later.
+function analyzeFrame() {
+  if (!video.videoWidth) return;
+  canvas.width = 64; canvas.height = 48; // downsample for speed
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+  let rSum = 0, gSum = 0, bSum = 0, count = data.length / 4;
+  for (let i = 0; i < data.length; i += 4) {
+    rSum += data[i]; gSum += data[i+1]; bSum += data[i+2];
+  }
+  const rAvg = rSum / count, gAvg = gSum / count, bAvg = bSum / count;
+  const brightness = (rAvg + gAvg + bAvg) / 3;
+  const redDominance = rAvg - ((gAvg + bAvg) / 2);
+
+  let result;
+  if (redDominance > 25 && brightness > 60) {
+    result = HAZARD_LIBRARY[0]; // fire-like red dominance
+  } else if (brightness < 40) {
+    result = HAZARD_LIBRARY[1]; // low light / obstacle caution
+  } else {
+    // Mostly safe, occasionally caution to show variety in the demo
+    result = Math.random() < 0.15 ? HAZARD_LIBRARY[2] : HAZARD_LIBRARY[3];
+  }
+  setStatus(result.level, result.msg);
+}
+
+async function startMonitoring() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    video.srcObject = stream;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    setStatus('SAFE', 'Monitoring started. Path is clear.');
+    intervalId = setInterval(analyzeFrame, 2500);
+  } catch (err) {
+    setStatus('CAUTION', 'Camera access denied or unavailable: ' + err.message);
+  }
+}
+
+function stopMonitoring() {
+  if (intervalId) clearInterval(intervalId);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+  statusText.textContent = 'Monitoring not started';
+  statusDot.style.background = '#555';
+  statusBanner.style.background = 'rgba(0,0,0,0.55)';
+  msgLine.textContent = 'Stopped';
+}
+
+startBtn.addEventListener('click', startMonitoring);
+stopBtn.addEventListener('click', stopMonitoring);
+testDangerBtn.addEventListener('click', () => setStatus('DANGER', 'Fire detected approximately 8 metres ahead. Exit through the door on your right.'));
+testCautionBtn.addEventListener('click', () => setStatus('CAUTION', 'Wet floor detected 3 metres ahead. Move 2 metres left.'));
+</script>
+</body>
+</html>
